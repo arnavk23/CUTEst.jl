@@ -20,11 +20,11 @@ mutable struct CUTEstModel{T} <: AbstractNLPModel{T, Vector{T}}
   jac_coord_cols::Vector{Cint}     # nnzj elements for Jacobian column indices
   jac_coord_vals::Vector{T}        # nnzj elements for Jacobian values
   hess_coord_vals::Vector{T}       # nnzh elements for Hessian values
-  
+
   # Preallocated constraint evaluation vectors
   cons_vals::Vector{T}             # ncon elements for constraint values
   cons_nln_vals::Vector{T}         # nnln elements for nonlinear constraints subset
-  
+
   # Type conversion workspace vectors
   input_workspace::Vector{T}       # nvar elements for input conversion
   output_workspace::Vector{T}      # max(nvar, ncon) elements for output conversion
@@ -316,12 +316,12 @@ function CUTEstModel{T}(
   jac_coord_cols = Vector{Cint}(undef, nnzj)
   jac_coord_vals = Vector{T}(undef, nnzj)
   hess_coord_vals = Vector{T}(undef, nnzh)
-  
+
   # Preallocate constraint evaluation vectors
   cons_vals = Vector{T}(undef, ncon)
   nnln = count(.!linear)  # Number of nonlinear constraints
   cons_nln_vals = Vector{T}(undef, nnln)
-  
+
   # Preallocate type conversion workspace vectors
   input_workspace = Vector{T}(undef, nvar)
   output_workspace = Vector{T}(undef, max(nvar, ncon))
