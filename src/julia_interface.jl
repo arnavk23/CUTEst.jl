@@ -56,8 +56,7 @@ end
 
 function NLPModels.obj(nlp::CUTEstModel{T}, x::AbstractVector) where {T}
   @lencheck nlp.meta.nvar x
-  x_ = Vector{T}(x)
-  obj(nlp, x_)
+  obj(nlp, prepare_input!(nlp.input_workspace, x))
 end
 
 function NLPModels.grad!(
@@ -113,7 +112,7 @@ end
 function NLPModels.objcons!(nlp::CUTEstModel{T}, x::AbstractVector, c::StrideOneVector{T}) where {T}
   @lencheck nlp.meta.nvar x
   @lencheck nlp.meta.ncon c
-  objcons!(nlp, Vector{T}(x), c)
+  objcons!(nlp, prepare_input!(nlp.input_workspace, x), c)
 end
 
 function NLPModels.objcons!(nlp::CUTEstModel{T}, x::AbstractVector, c::AbstractVector) where {T}
@@ -121,11 +120,11 @@ function NLPModels.objcons!(nlp::CUTEstModel{T}, x::AbstractVector, c::AbstractV
   @lencheck nlp.meta.ncon c
   if nlp.meta.ncon > 0
     cc = nlp.workspace_ncon
-    f, _ = objcons!(nlp, Vector{T}(x), cc)
+    f, _ = objcons!(nlp, prepare_input!(nlp.input_workspace, x), cc)
     c .= cc
     return f, c
   else
-    return objcons!(nlp, Vector{T}(x), T[])
+    return objcons!(nlp, prepare_input!(nlp.input_workspace, x), T[])
   end
 end
 
@@ -239,7 +238,7 @@ function cons_coord!(
 
   cons_coord!(
     nlp,
-    Vector{T}(x),
+    prepare_input!(nlp.input_workspace, x),
     view(nlp.cons_vals, 1:nlp.meta.ncon),
     view(nlp.jac_coord_rows, 1:nnzj),
     view(nlp.jac_coord_cols, 1:nnzj),
@@ -301,7 +300,7 @@ end
 
 function cons_coord(nlp::CUTEstModel{T}, x::AbstractVector) where {T}
   @lencheck nlp.meta.nvar x
-  cons_coord(nlp, Vector{T}(x))
+  cons_coord(nlp, prepare_input!(nlp.input_workspace, x))
 end
 
 """
@@ -332,6 +331,7 @@ function NLPModels.cons!(
   @lencheck nlp.meta.nvar x
   @lencheck nlp.meta.ncon c
   ccf(T, nlp.libsif, nlp.status, nlp.nvar, nlp.ncon, x, c)
+  cutest_error(nlp.status[])
   increment!(nlp, :neval_cons)
   return c
 end
@@ -339,10 +339,14 @@ end
 function NLPModels.cons!(nlp::CUTEstModel{T}, x::AbstractVector, c::AbstractVector) where {T}
   @lencheck nlp.meta.nvar x
   @lencheck nlp.meta.ncon c
-  x_ = Vector{T}(x)
-  c_ = Vector{T}(c)
-  cons!(nlp, x_, c_)
-  c .= c_
+  x_ = prepare_input!(nlp.input_workspace, x)
+  if typeof(c) <: Vector{T}
+    cons!(nlp, x_, c)
+  else
+    resize!(nlp.output_workspace, length(c))
+    cons!(nlp, x_, view(nlp.output_workspace, 1:length(c)))
+    c .= view(nlp.output_workspace, 1:length(c))
+  end
   return c
 end
 
@@ -358,9 +362,11 @@ end
 function NLPModels.cons_nln!(nlp::CUTEstModel{T}, x::AbstractVector, c::AbstractVector) where {T}
   @lencheck nlp.meta.nvar x
   @lencheck nlp.meta.nnln c
-  _cx = Vector{T}(undef, nlp.meta.nnln)
-  cons_nln!(nlp, x, _cx)
-  c .= _cx
+  if length(nlp.cons_nln_vals) < nlp.meta.nnln
+    resize!(nlp.cons_nln_vals, nlp.meta.nnln)
+  end
+  cons_nln!(nlp, x, view(nlp.cons_nln_vals, 1:nlp.meta.nnln))
+  c .= view(nlp.cons_nln_vals, 1:nlp.meta.nnln)
   return c
 end
 
@@ -372,6 +378,7 @@ function NLPModels.cons_nln!(nlp::CUTEstModel{T}, x::AbstractVector, c::StrideOn
   for j in nlp.meta.nln
     ref_j[] = j
     cifn(T, nlp.libsif, nlp.status, nlp.nvar, ref_j, x, view(c, k:k))
+    cutest_error(nlp.status[])
     k += 1
   end
   increment!(nlp, :neval_cons_nln)
@@ -471,6 +478,7 @@ function NLPModels.jac_nln_coord!(
       nlp.Jvar,
       bool,
     )
+    cutest_error(nlp.status[])
     for k = 1:nlp.nnzj[]
       vals[i] = nlp.Jval[k]
       i += 1
@@ -505,7 +513,9 @@ function NLPModels.jprod!(
 ) where {T}
   @lencheck nlp.meta.nvar x v
   @lencheck nlp.meta.ncon jv
-  jprod!(nlp, Vector{T}(x), Vector{T}(v), jv)
+  x_ = prepare_input!(nlp.input_workspace, x)
+  v_ = prepare_input!(nlp.workspace_nvar, v)
+  jprod!(nlp, x_, v_, jv)
 end
 
 function NLPModels.jprod!(
@@ -516,8 +526,10 @@ function NLPModels.jprod!(
 ) where {T}
   @lencheck nlp.meta.nvar x v
   @lencheck nlp.meta.ncon jv
+  x_ = prepare_input!(nlp.input_workspace, x)
+  v_ = prepare_input!(nlp.workspace_nvar, v)
   jvc = nlp.workspace_ncon
-  jprod!(nlp, Vector{T}(x), Vector{T}(v), jvc)
+  jprod!(nlp, x_, v_, jvc)
   jv .= jvc
 end
 
@@ -586,7 +598,9 @@ function NLPModels.jtprod!(
 ) where {T}
   @lencheck nlp.meta.nvar x jtv
   @lencheck nlp.meta.ncon v
-  jtprod!(nlp, Vector{T}(x), Vector{T}(v), jtv)
+  x_ = prepare_input!(nlp.input_workspace, x)
+  v_ = prepare_input!(nlp.workspace_ncon, v)
+  jtprod!(nlp, x_, v_, jtv)
 end
 
 function NLPModels.jtprod!(
@@ -597,8 +611,10 @@ function NLPModels.jtprod!(
 ) where {T}
   @lencheck nlp.meta.nvar x jtv
   @lencheck nlp.meta.ncon v
+  x_ = prepare_input!(nlp.input_workspace, x)
+  v_ = prepare_input!(nlp.workspace_ncon, v)
   jtvc = nlp.workspace_nvar
-  jtprod!(nlp, Vector{T}(x), Vector{T}(v), jtvc)
+  jtprod!(nlp, x_, v_, jtvc)
   jtv .= jtvc
 end
 
@@ -720,8 +736,8 @@ function NLPModels.hess_coord!(
 
   NLPModels.hess_coord!(
     nlp,
-    Vector{T}(x),
-    convert(Vector{T}, y),
+    prepare_input!(nlp.input_workspace, x),
+    prepare_input!(nlp.workspace_ncon, y),
     view(nlp.hess_coord_vals, 1:nlp.meta.nnzh),
     obj_weight = obj_weight,
   )
@@ -789,7 +805,10 @@ function NLPModels.hprod!(
 ) where {T}
   @lencheck nlp.meta.nvar x v hv
   @lencheck nlp.meta.ncon y
-  hprod!(nlp, Vector{T}(x), convert(Vector{T}, y), Vector{T}(v), hv, obj_weight = obj_weight)
+  x_ = prepare_input!(nlp.input_workspace, x)
+  y_ = prepare_input!(nlp.workspace_ncon, y)
+  v_ = prepare_input!(nlp.output_workspace, v)
+  hprod!(nlp, x_, y_, v_, hv, obj_weight = obj_weight)
 end
 
 function NLPModels.hprod!(
@@ -802,8 +821,11 @@ function NLPModels.hprod!(
 ) where {T}
   @lencheck nlp.meta.nvar x v hv
   @lencheck nlp.meta.ncon y
+  x_ = prepare_input!(nlp.input_workspace, x)
+  y_ = prepare_input!(nlp.workspace_ncon, y)
+  v_ = prepare_input!(nlp.output_workspace, v)
   hvc = nlp.workspace_nvar
-  hprod!(nlp, Vector{T}(x), convert(Vector{T}, y), Vector{T}(v), hvc, obj_weight = obj_weight)
+  hprod!(nlp, x_, y_, v_, hvc, obj_weight = obj_weight)
   hv .= hvc
 end
 
@@ -830,7 +852,9 @@ function NLPModels.hprod!(
   @lencheck nlp.meta.nvar x v hv
   λ = nlp.workspace_ncon
   λ .= zero(T)  # Lagrange multipliers
-  hprod!(nlp, Vector{T}(x), λ, Vector{T}(v), hv, obj_weight = obj_weight)
+  x_ = prepare_input!(nlp.input_workspace, x)
+  v_ = prepare_input!(nlp.output_workspace, v)
+  hprod!(nlp, x_, λ, v_, hv, obj_weight = obj_weight)
 end
 
 function NLPModels.hprod!(
@@ -841,8 +865,12 @@ function NLPModels.hprod!(
   obj_weight::T = one(T),
 ) where {T}
   @lencheck nlp.meta.nvar x v hv
+  λ = nlp.workspace_ncon
+  λ .= zero(T)  # Lagrange multipliers
+  x_ = prepare_input!(nlp.input_workspace, x)
+  v_ = prepare_input!(nlp.output_workspace, v)
   hvc = nlp.workspace_nvar
-  hprod!(nlp, Vector{T}(x), Vector{T}(v), hvc, obj_weight = obj_weight)
+  hprod!(nlp, x_, λ, v_, hvc, obj_weight = obj_weight)
   hv .= hvc
 end
 
@@ -856,6 +884,7 @@ function NLPModels.jth_hess_coord!(
   @rangecheck 1 nlp.meta.ncon j
   ref_j = nlp.index
   ref_j[] = j
+  fill!(vals, zero(T))
   cish(
     T,
     nlp.libsif,
@@ -869,5 +898,6 @@ function NLPModels.jth_hess_coord!(
     nlp.hcols,
     nlp.hrows,
   )
+  cutest_error(nlp.status[])
   return vals
 end
