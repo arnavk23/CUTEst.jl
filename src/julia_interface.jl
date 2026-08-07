@@ -428,13 +428,40 @@ end
 
 function NLPModels.jac_coord!(
   nlp::CUTEstModel{T},
+  x::StrideOneVector{T},
+  vals::StrideOneVector{T},
+) where {T}
+  @lencheck nlp.meta.nvar x
+  @lencheck nlp.meta.nnzj vals
+  nlp.nnzj[] = nlp.meta.nnzj
+  csj(
+    T,
+    nlp.libsif,
+    nlp.status,
+    nlp.nvar,
+    x,
+    nlp.index,
+    nlp.nnzj,
+    vals,
+    nlp.jcols,
+    nlp.jrows
+  )
+  cutest_error(nlp.status[])
+  increment!(nlp, :neval_jac)
+  return vals
+end
+
+function NLPModels.jac_coord!(
+  nlp::CUTEstModel{T},
   x::AbstractVector,
   vals::AbstractVector,
 ) where {T}
   @lencheck nlp.meta.nvar x
   @lencheck nlp.meta.nnzj vals
-  cons_coord!(nlp, x, nlp.workspace_ncon, nlp.jrows, nlp.jcols, vals)
-  decrement!(nlp, :neval_cons)  # does not really count as a constraint eval
+  x_ = Vector{T}(x)
+  vals_ = Vector{T}(vals)
+  jac_coord!(nlp, x_, vals_)
+  vals .= vals_
   return vals
 end
 

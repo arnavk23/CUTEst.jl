@@ -9,11 +9,11 @@ The supported sets are:
 """
 function set_mastsif(set::String = "sifcollection")
   if set == "sifcollection"
-    ENV["MASTSIF"] = joinpath(artifact"sifcollection", "optrove-sif-0b335a4b1a3c")
+    ENV["MASTSIF"] = joinpath(artifact"sifcollection")
   elseif set == "maros-meszaros"
-    ENV["MASTSIF"] = joinpath(artifact"maros-meszaros", "optrove-maros-meszaros-9adfb5707b1e")
+    ENV["MASTSIF"] = joinpath(artifact"maros-meszaros", "maros-meszaros-2026.6.2")
   elseif set == "netlib-lp"
-    ENV["MASTSIF"] = joinpath(artifact"netlib-lp", "optrove-netlib-lp-f83996fca937")
+    ENV["MASTSIF"] = joinpath(artifact"netlib-lp", "netlib-lp-2026.6.2")
   else
     error("The set $set is not supported.")
   end
@@ -131,7 +131,7 @@ function sifdecoder(
     run(
       pipeline(
         Cmd(
-          `$(SIFDecode_jll.sifdecoder_standalone()) $(args) $(prec) -suffix $(path_sifname)`,
+          `$(SIFDecode_jll.sifdecoder()) $(args) $(prec) -suffix $(path_sifname)`,
           ignorestatus = true,
         ),
         stdout = outlog,
@@ -204,8 +204,11 @@ function build_libsif(
         if isfile("$fname.f")
           @static if Sys.iswindows()
             mingw = Int == Int64 ? "mingw64" : "mingw32"
-            gfortran = joinpath(artifact"mingw-w64", mingw, "bin", "gfortran.exe")
-            run(`$gfortran -O3 -c -fPIC $fname.f`)
+            bindir = joinpath(artifact"mingw-w64", mingw, "bin")
+            gfortran = joinpath(bindir, "gfortran.exe")
+            withenv("PATH" => string(bindir, ';', ENV["PATH"])) do
+              run(`$gfortran -O3 -c -fPIC $fname.f`)
+            end
           else
             run(`gfortran -O3 -c -fPIC $fname.f`)
           end
@@ -222,11 +225,16 @@ function build_libsif(
       elseif Sys.iswindows()
         @static if Sys.iswindows()
           mingw = Int == Int64 ? "mingw64" : "mingw32"
-          gfortran = joinpath(artifact"mingw-w64", mingw, "bin", "gfortran.exe")
+          bindir = joinpath(artifact"mingw-w64", mingw, "bin")
+          gfortran = joinpath(bindir, "gfortran.exe")
           if standalone
-            run(`$gfortran -shared -o $libsif_name $object_files`)
+            withenv("PATH" => string(bindir, ';', ENV["PATH"])) do
+              run(`$gfortran -shared -o $libsif_name $object_files`)
+            end
           else
-            run(`$gfortran -shared -o $libsif_name $object_files -Wl,--whole-archive $libcutest -Wl,--no-whole-archive`)
+            withenv("PATH" => string(bindir, ';', ENV["PATH"])) do
+              run(`$gfortran -shared -o $libsif_name $object_files -Wl,--whole-archive $libcutest -Wl,--no-whole-archive`)
+            end
           end
         end
       else
